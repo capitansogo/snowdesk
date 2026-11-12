@@ -79,3 +79,5 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+          # теги с дефисом (v0.1.0-beta.1) — предварительные релизы
+          prerelease: ${{ contains(github.ref_name, '-') }}
