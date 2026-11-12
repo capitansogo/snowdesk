@@ -1,0 +1,81 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Сборка (universal: Apple Silicon + Intel)
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/snowdesk \
+            target/aarch64-apple-darwin/release/snowdesk \
+            target/x86_64-apple-darwin/release/snowdesk
+      - name: Snowdesk.app
+        run: SNOWDESK_BIN=target/universal/snowdesk ./scripts/bundle.sh
+      - name: Архив
+        run: cd target && ditto -c -k --keepParent Snowdesk.app Snowdesk-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowdesk-macos
+          path: target/Snowdesk-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка
+        run: cargo build --release
+      - name: Архив
+        shell: pwsh
+        run: Compress-Archive -Path target/release/snowdesk.exe -DestinationPath target/Snowdesk-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowdesk-windows-x64
+          path: target/Snowdesk-windows-x64.zip
+
+  linux:
+    # 22.04 — чтобы бинарник запускался и на дистрибутивах постарше (glibc 2.35)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Системные библиотеки (трей через GTK + AppIndicator)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+      - name: Сборка
+        run: cargo build --release
+      - name: Архив
+        run: tar -czf target/Snowdesk-linux-x64.tar.gz -C target/release snowdesk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowdesk-linux-x64
+          path: target/Snowdesk-linux-x64.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
