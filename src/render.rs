@@ -70,11 +70,14 @@ fn fs(v: VOut) -> @location(0) vec4<f32> {
             let l = normalize(vec3<f32>(-0.45, -0.7, 0.6));
             let diff = clamp(dot(n, l), 0.0, 1.0);
             rgb = rgb * mix(vec3<f32>(0.66, 0.75, 0.9), vec3<f32>(1.0, 1.0, 1.0), 0.3 + 0.7 * diff);
-        } else {
+        } else if (v.kind < 4.5) {
             // треугольник остриём вправо (морковка)
             let hw = (1.0 - v.uv.x) * 0.5 * v.half.y;
             let d = abs(p.y) - hw;
             a = a * clamp(0.5 - d, 0.0, 1.0);
+        } else {
+            // вертикальный градиент: сверху color, снизу params.yzw (обои, обложки в --showcase)
+            rgb = mix(v.color.rgb, v.params.yzw, v.uv.y * 0.5 + 0.5);
         }
     } else {
         // столбик сугроба — трапеция: верх идёт наклонной от params.y (слева) к params.z (справа)
@@ -140,6 +143,29 @@ impl Gpu {
             .find(|f| *f == wgpu::TextureFormat::Bgra8Unorm)
             .unwrap_or(caps.formats[0]);
 
+        (Self::assemble(instance, adapter, device, queue, format), surface)
+    }
+
+    /// GPU без окна — для режима `--showcase` (картинки для README).
+    pub fn headless() -> Gpu {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).expect("adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("snow-headless"),
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+            ..Default::default()
+        }))
+        .expect("device");
+        Self::assemble(instance, adapter, device, queue, wgpu::TextureFormat::Rgba8Unorm)
+    }
+
+    fn assemble(
+        instance: wgpu::Instance,
+        adapter: wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+    ) -> Gpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("snow"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -196,19 +222,92 @@ impl Gpu {
             cache: None,
         });
         let belt = std::cell::RefCell::new(wgpu::util::StagingBelt::new(device.clone(), 512 * 1024));
-        (
-            Gpu {
-                instance,
-                adapter,
-                device,
-                queue,
-                pipeline,
-                bgl,
-                format,
-                belt,
+        Gpu {
+            instance,
+            adapter,
+            device,
+            queue,
+            pipeline,
+            bgl,
+            format,
+            belt,
+        }
+    }
+
+    /// Нарисовать кадр в память: RGBA, `w_pt × h_pt` пунктов в масштабе `scale`.
+    pub fn render_rgba(&self, w_pt: f32, h_pt: f32, scale: f32, inst: &[Instance]) -> (u32, u32, Vec<u8>) {
+        use wgpu::util::DeviceExt;
+        let (w, h) = ((w_pt * scale) as u32, (h_pt * scale) as u32);
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        let ubuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[w_pt, h_pt, 0.0, 0.0]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bgl,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: ubuf.as_entire_binding() }],
+        });
+        let ibuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(inst),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let row = (w * 4).div_ceil(256) * 256;
+        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (row * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.set_vertex_buffer(0, ibuf.slice(..));
+            pass.draw(0..4, 0..inst.len() as u32);
+        }
+        enc.copy_texture_to_buffer(
+            tex.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &out,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) },
             },
-            surface,
-        )
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        self.queue.submit([enc.finish()]);
+        out.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        let data = out.slice(..).get_mapped_range().expect("map");
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h as usize {
+            px.extend_from_slice(&data[y * row as usize..y * row as usize + (w * 4) as usize]);
+        }
+        (w, h, px)
     }
 
     pub fn create_surface(&self, window: Arc<Window>) -> wgpu::Surface<'static> {

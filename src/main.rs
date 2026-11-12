@@ -7,6 +7,7 @@
 mod platform;
 mod render;
 mod settings;
+mod showcase;
 mod sim;
 mod tray;
 
@@ -394,7 +395,14 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
-    if std::env::args().any(|a| a == "--debug-windows") {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--showcase") {
+        // картинки для README: выдуманный рабочий стол + настоящая симуляция
+        let dir = args.get(i + 1).map(String::as_str).unwrap_or("target/showcase");
+        showcase::run(std::path::Path::new(dir));
+        return;
+    }
+    if args.iter().any(|a| a == "--debug-windows") {
         let mut p = Platform::new();
         for w in p.windows() {
             println!("{:>12} {:?} surface={}", w.id, w.rect, w.surface);

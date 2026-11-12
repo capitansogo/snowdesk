@@ -8,6 +8,12 @@
 *Desktop snow for macOS, Windows and Linux (X11): snow piles up on window edges and the Dock/taskbar,
 moves with windows, and can be rolled into snowballs and snowmen. Written in Rust (winit + wgpu).*
 
+![Сугробы на окнах и Dock, снеговик на окне редактора](docs/screenshot.png)
+
+![Окно встряхнули — снег осыпается; снегоуборщик чистит Dock](docs/demo.gif)
+
+<sub>Рабочий стол на картинках выдуманный (его рисует `scripts/showcase.sh`), снег — настоящая симуляция из приложения.</sub>
+
 ## Платформы
 
 | | Статус |
@@ -71,6 +77,7 @@ cargo run --release                  # собрать и запустить
 SNOW_STATS=1 cargo run --release     # + раз в 5 с печатает fps и время кадра
 cargo run --release -- --debug-windows   # какие окна и Dock видит программа
 SNOW_DEMO=500,100 cargo run --release    # демо: три шара падают в точку (500, 100), потом снегоуборщик
+./scripts/showcase.sh                    # перерисовать docs/screenshot.png и docs/demo.gif (нужен ffmpeg)
 ```
 
 macOS: `./scripts/bundle.sh --install` собирает `Snowdesk.app` и кладёт в `/Applications`.
@@ -94,6 +101,7 @@ Linux: `sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev`.
 | `src/sim/toys.rs` | снежки, снеговик, лопата, снегоуборщик |
 | `src/render.rs` | wgpu: инстансы-квадраты, форму (круг, трапеция сугроба, шар, морковка) делает шейдер |
 | `src/tray.rs` | меню в трее; на Linux живёт в отдельном потоке GTK |
+| `src/showcase.rs` | выдуманный рабочий стол для картинок в README (`--showcase`) |
 | `examples/make_icon.rs` | рисует иконку приложения кодом |
 
 Ключевые решения:
