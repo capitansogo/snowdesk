@@ -12,9 +12,9 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Rust
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: "Сборка (universal: Apple Silicon + Intel)"
@@ -29,7 +29,7 @@ jobs:
         run: SNOWDESK_BIN=target/universal/snowdesk ./scripts/bundle.sh
       - name: Архив
         run: cd target && ditto -c -k --keepParent Snowdesk.app Snowdesk-macos.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Snowdesk-macos
           path: target/Snowdesk-macos.zip
@@ -37,13 +37,13 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Сборка
         run: cargo build --release
       - name: Архив
         shell: pwsh
         run: Compress-Archive -Path target/release/snowdesk.exe -DestinationPath target/Snowdesk-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Snowdesk-windows-x64
           path: target/Snowdesk-windows-x64.zip
@@ -52,7 +52,7 @@ jobs:
     # 22.04 — чтобы бинарник запускался и на дистрибутивах постарше (glibc 2.35)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Системные библиотеки (трей через GTK + AppIndicator)
         run: |
           sudo apt-get update
@@ -61,7 +61,7 @@ jobs:
         run: cargo build --release
       - name: Архив
         run: tar -czf target/Snowdesk-linux-x64.tar.gz -C target/release snowdesk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Snowdesk-linux-x64
           path: target/Snowdesk-linux-x64.tar.gz
@@ -71,7 +71,7 @@ jobs:
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
